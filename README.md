@@ -46,7 +46,7 @@ Requires Python 3.10+.
 
 **Windows (Git Bash)**
 ```bash
-git clone https://github.com/<your-username>/credit-warning-monitor.git
+git clone https://github.com/pdesgrip/credit-warning-monitor.git
 cd credit-warning-monitor
 python -m venv .venv
 ```
