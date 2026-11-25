@@ -141,3 +141,24 @@ def test_long_span_axis_uses_years():
 def test_short_span_axis_uses_month_and_year():
     s = pd.Series(np.arange(13.0), index=pd.date_range("2025-09-01", periods=13, freq="MS"))
     assert _labels(m._svg_line(s)) == ["Sep '25", "Mar '26", "Sep '26"]
+
+
+def test_high_ccc_level_is_amber_even_when_widening_slowly(monkeypatch):
+    # Nov 2026 case: CCC ~14% at the top of its range, but only +60bp in a month.
+    hy = daily(np.r_[np.full(770, 3.3), np.linspace(3.3, 3.72, 30)])
+    ccc_vals = np.r_[np.linspace(8.0, 13.45, 770), np.linspace(13.45, 14.05, 30)]
+    monkeypatch.setattr(m, "fred", lambda sid: daily(ccc_vals))
+    flat = daily(np.full(300, 80.0))
+    monkeypatch.setattr(m, "stooq", lambda sym: flat)
+    out = m.eval_market(hy)
+    assert out["ccc"]["status"] == "AMBER"
+    assert out["ccc"]["reason"].startswith("level")
+
+
+def test_calm_ccc_stays_green(monkeypatch):
+    hy = daily(np.full(800, 3.0))
+    monkeypatch.setattr(m, "fred", lambda sid: daily(np.r_[np.full(400, 9.0), np.full(400, 7.0)]))
+    flat = daily(np.full(300, 80.0))
+    monkeypatch.setattr(m, "stooq", lambda sym: flat)
+    out = m.eval_market(hy)
+    assert out["ccc"]["status"] == "GREEN"

@@ -25,7 +25,7 @@ Most dashboards only track spreads, which is step 3 at index level. This tool wa
 | **Lending standards** | Net % of banks tightening: C&I (large/mid and small firms) and credit cards | FRED (`DRTSCILM`, `DRTSCIS`, `DRTSCLCC`) | Quarterly | ≥ 20% / ≥ 40%; momentum upgrade on a fast rise from a low base |
 | **HY primary market** | 3-month HY issuance run-rate vs prior 12-month average | SIFMA US Corporate Bond Statistics | Monthly | < 70% / < 50% of run-rate; **"quiet shutdown" flag** if issuance collapses while spreads still look benign |
 | | HY option-adjusted spread, 3-year percentile | FRED (`BAMLH0A0HYM2`) | Daily | Context for the issuance leg |
-| **Cross-checks** | CCC & lower OAS: 1-month change and decompression vs headline HY | FRED (`BAMLH0A3HYC`) | Daily | +75bp / +150bp (CCC); +50bp / +100bp (CCC minus HY) |
+| **Cross-checks** | CCC & lower OAS: level, 1-month change, and decompression vs headline HY | FRED (`BAMLH0A3HYC`) | Daily | AMBER if OAS ≥ 10% (distressed) or top decile of 3y, or +75bp / +50bp gap in 1m; RED at +150bp / +100bp gap. The card states which rule set the colour |
 | | HYG/LQD ratio: credit vs rates attribution | Stooq, Yahoo fallback | Daily | ≤ −1.5% in 1 month → AMBER (capped, because it is noisy on its own) |
 
 The **composite** is the worst of the three legs. Every threshold is a named constant at the top of the script, so you can tune them.

@@ -52,6 +52,9 @@ CCC_AMBER_BP = 75
 CCC_RED_BP = 150
 DIFF_AMBER_BP = 50    # CCC minus headline HY, 1m change
 DIFF_RED_BP = 100
+# CCC level floor: momentum alone can't score a distressed index GREEN
+CCC_LEVEL_AMBER = 10.0   # OAS in %, i.e. 1,000bp -- the conventional distressed line
+CCC_PCTL_AMBER = 0.90    # or top decile of its 3-year range
 # HYG/LQD ratio 1m change; capped at AMBER (noisy, needs confirmation)
 RATIO_AMBER = -0.015
 
@@ -302,19 +305,27 @@ def eval_market(spread: pd.Series) -> dict:
         chg = float(ccc.iloc[-1] - ccc.iloc[-22]) * 100 if len(ccc) > 22 else 0.0
         diff = ccc - spread.reindex(ccc.index).ffill()
         dchg = float(diff.iloc[-1] - diff.iloc[-22]) * 100 if len(diff) > 22 else 0.0
+        level = float(ccc.iloc[-1])
+        pctl = float((c3 < level).mean())
+        reasons = []
         st = "GREEN"
+        if level >= CCC_LEVEL_AMBER or pctl >= CCC_PCTL_AMBER:
+            st = "AMBER"
+            reasons.append(f"level {level:.1f}% ({pctl:.0%} pctl 3y)")
         if chg >= CCC_AMBER_BP or dchg >= DIFF_AMBER_BP:
             st = "AMBER"
+            reasons.append(f"momentum: 1m {chg:+.0f}bp, gap vs HY {dchg:+.0f}bp")
         if chg >= CCC_RED_BP or dchg >= DIFF_RED_BP:
             st = "RED"
         out["ccc"] = {
             "as_of": ccc.index[-1].date().isoformat(),
             "oas_pct": round(float(ccc.iloc[-1]), 2),
-            "pctl_3y": round(float((c3 < ccc.iloc[-1]).mean()), 2),
+            "pctl_3y": round(pctl, 2),
             "chg_1m_bp": round(chg, 0),
             "diff_vs_hy_pct": round(float(diff.iloc[-1]), 2),
             "diff_chg_1m_bp": round(dchg, 0),
             "status": st,
+            "reason": "; ".join(reasons) if reasons else "level and momentum both normal",
         }
         worst = max(worst, rank[st])
     except Exception as e:
@@ -353,6 +364,7 @@ def eval_market(spread: pd.Series) -> dict:
 # HTML report
 # ----------------------------------------------------------------------------
 _COL = {"GREEN": "#2E7D5B", "AMBER": "#C98A1B", "RED": "#B3352C", "UNKNOWN": "#6B7A86"}
+_COL_NAME = {"GREEN": "Green", "AMBER": "Amber", "RED": "Red", "UNKNOWN": "Unknown"}
 
 def _axis_labels(series: pd.Series, w: int, h: int, pad: int) -> str:
     """Start / middle / end date labels along the bottom of a sparkline.
@@ -488,8 +500,9 @@ def render_html(sloos: dict, hy: dict, market: dict, composite: str, spread: pd.
         ccc_html = (
             f'<div class="row"><div class="k">{lamp(ccc["status"])}CCC &amp; lower OAS'
             f'<span class="sub">{ccc["as_of"]}</span></div>'
-            f'<div class="num">{ccc["oas_pct"]:.2f}%<span class="sub">{ccc["pctl_3y"]:.0%} pctl 3y &middot; 1m {ccc["chg_1m_bp"]:+.0f}bp &middot; vs HY {ccc["diff_vs_hy_pct"]:.2f}% ({ccc["diff_chg_1m_bp"]:+.0f}bp)</span></div>'
-            f'<div class="spark">{_svg_line(cser, color="#1F3A5F")}</div></div>')
+            f'<div class="num">{ccc["oas_pct"]:.2f}%<span class="sub">{ccc["pctl_3y"]:.0%} pctl 3y &middot; 1m {ccc["chg_1m_bp"]:+.0f}bp &middot; CCC&minus;HY gap {ccc["diff_vs_hy_pct"]:.2f}% (1m {ccc["diff_chg_1m_bp"]:+.0f}bp)</span></div>'
+            f'<div class="spark">{_svg_line(cser, color="#1F3A5F")}</div></div>'
+            f'<div class="note">{_COL_NAME[ccc["status"]]} because: {H.escape(ccc["reason"])}</div>')
     rt = market.get("ratio", {})
     if "error" in rt:
         ratio_html = f'<div class="row"><div class="k">{lamp("UNKNOWN")}HYG / LQD</div><div class="v err">{H.escape(rt["error"])}</div></div>'
@@ -548,7 +561,7 @@ footer{{margin-top:22px;font-size:11px;color:var(--mute);font-family:var(--mono)
 <p class="lead">Issuance dries up before spreads widen. Amber &lt; {ISS_AMBER_RATIO:.0%}, red &lt; {ISS_RED_RATIO:.0%} of the prior-12m run rate.</p>
 {iss_html}{sp_html}</div>
 <div class="card"><h2>{lamp(market["overall"])}Credit cross-checks</h2>
-<p class="lead">CCC cracks first; HYG/LQD separates credit weakness from rates weakness. Ratio alone caps at amber.</p>
+<p class="lead">CCC cracks first: amber if OAS &ge; {CCC_LEVEL_AMBER:.0f}% or top decile of 3y, or on fast widening; red on fast widening only. HYG/LQD separates credit from rates weakness (caps at amber).</p>
 {ccc_html}{ratio_html}</div>
 </div>
 <footer>Sources: FRED (DRTSCILM, DRTSCIS, DRTSCLCC, BAMLH0A0HYM2, BAMLH0A3HYC) &middot; Stooq (HYG, LQD) &middot; SIFMA US Corporate Bond Statistics. {sif_note}</footer>
@@ -623,7 +636,8 @@ def main():
     if "error" in c:
         print(f"   CCC OAS fetch failed: {c['error']}")
     else:
-        print(f"   CCC OAS {c['oas_pct']:.2f}%  ({c['pctl_3y']:.0%} pctl 3y, 1m {c['chg_1m_bp']:+.0f}bp)  vs HY {c['diff_vs_hy_pct']:.2f}% ({c['diff_chg_1m_bp']:+.0f}bp 1m)  [{c['status']}]")
+        print(f"   CCC OAS {c['oas_pct']:.2f}%  ({c['pctl_3y']:.0%} pctl 3y, 1m {c['chg_1m_bp']:+.0f}bp)  gap vs HY {c['diff_vs_hy_pct']:.2f}% ({c['diff_chg_1m_bp']:+.0f}bp 1m)  [{c['status']}]")
+        print(f"      reason: {c['reason']}")
     r = market.get("ratio", {})
     if "error" in r:
         print(f"   HYG/LQD fetch failed: {r['error']}")
